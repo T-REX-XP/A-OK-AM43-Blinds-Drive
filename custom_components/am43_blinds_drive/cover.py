@@ -9,6 +9,20 @@ import datetime
 from retrying import retry
 import json
 
+# AM43 Notification Identifiers
+# Msg format: 9a <id> <len> <data * len> <xor csum>
+IdMove = 0x0d  #not used in code yet
+IdStop = 0x0a
+IdBattery = 0xa2
+IdLight = 0xaa
+IdPosition = 0xa7
+IdPosition2 = 0xa8  #not used in code yet
+IdPosition3 = 0xa9  #not used in code yet
+
+BatteryPct = None
+LightPct = None
+PositionPct = None
+
 from homeassistant.components.cover import (
     CoverDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_OPEN, SUPPORT_CLOSE, SUPPORT_STOP)
 from homeassistant.const import (
