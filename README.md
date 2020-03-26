@@ -1,3 +1,13 @@
+# Adaptation to the Home Assistant custom invertation
+{
+  "domain": "am43blinds",
+  "name": "AM43Blinds",
+  "documentation": "",
+  "dependencies": [],
+  "codeowners": [],
+  "requirements": []
+}
+
 # Python A-OK AM43 Blinds Motor Control
 A-OK AM43 Blinds Drive BTLE control from a Raspberry Pi (Zero W)
 
