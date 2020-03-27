@@ -35,7 +35,7 @@ REQUIREMENTS = ['broadlink==0.9.0']
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = 'am43blind'
+DEFAULT_NAME = 'am43blinds'
 
 STATE_CLOSING = 'closing'
 STATE_OFFLINE = 'offline'
