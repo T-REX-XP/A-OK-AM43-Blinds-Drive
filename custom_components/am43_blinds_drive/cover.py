@@ -1,32 +1,24 @@
 """
  Copyright 2020 T-REX-XP
 """
+REQUIREMENTS = ['retrying==1.3.3']
 from bluepy import btle
-#import configparser
 import os
-#from flask import Flask
 import datetime
 from retrying import retry
 import json
 import logging
 import voluptuous as vol
 
-
-
 from homeassistant.components.cover import (CoverDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_OPEN, SUPPORT_CLOSE, SUPPORT_STOP, SUPPORT_SET_POSITION)
-from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_DEVICE, CONF_FRIENDLY_NAME, CONF_COVERS, STATE_CLOSED, STATE_OPEN, STATE_UNKNOWN)
+from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_DEVICE, CONF_FRIENDLY_NAME, CONF_COVERS, STATE_CLOSED, STATE_OPEN, STATE_UNKNOWN, STATE_OPENING,STATE_CLOSING)
 import homeassistant.helpers.config_validation as cv
 
-REQUIREMENTS = ['retrying==1.3.3']
+
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_NAME = 'am43blinds'
-
-STATE_CLOSING = 'closing'
-STATE_OFFLINE = 'offline'
-STATE_OPENING = 'opening'
-STATE_STOPPED = 'stopped'
 
 # AM43 Notification Identifiers
 # Msg format: 9a <id> <len> <data * len> <xor csum>
@@ -43,6 +35,11 @@ PositionPct = None
 
 DEFAULT_TIMEOUT = 10
 DEFAULT_RETRY = 3
+
+STATE_CLOSING = 'closing'
+STATE_OFFLINE = 'offline'
+STATE_OPENING = 'opening'
+STATE_STOPPED = 'stopped'
 
 COVER_SCHEMA = vol.Schema({
     vol.Required(CONF_MAC): cv.string,
@@ -169,11 +166,12 @@ class AM43BlindsCover(CoverDevice):
         self._name = args[CONF_FRIENDLY_NAME]
         self._available = True
         self._state = None
-#        self._trigger_time = args[CONF_TRIGGER_TIME]
         self._mac = args[CONF_MAC]
         self._device = args[CONF_DEVICE]
         self._blindsControlService = self._device.getServiceByUUID("fe50")
         self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
+
+    	
     @property
     def name(self):
         """Return the name of the cover."""
@@ -197,29 +195,38 @@ class AM43BlindsCover(CoverDevice):
         bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [100], False)
 #        time.sleep(self._trigger_time)
         if (bSuccess):
-            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing Close" " to " +self._name +" : "+ self._mac  + " was succesfull!")
+            _LOGGER.debug("Writing Close" " to " +self._name +" : "+ self._mac  + " was succesfull!")
             self._state = STATE_CLOSED
         else:
-            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to Close" +self._name +" : "+ self._mac  + " FAILED")
+            _LOGGER.error("Writing to Close" +self._name +" : "+ self._mac  + " FAILED")
 
     def open_cover(self):
         """Open the cover."""
         bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [0], False)
         if (bSuccess):
-            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing Open" " to " +self._name +" : "+ self._mac  + " was succesfull!")
+            _LOGGER.debug("Writing Open" " to " +self._name +" : "+ self._mac  + " was succesfull!")
             self._state = STATE_OPEN
         else:
-            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to Open" +self._name +" : "+ self._mac  + " FAILED")
+            _LOGGER.error("Writing to Open" +self._name +" : "+ self._mac  + " FAILED")
 
     def stop_cover(self):
         """Stop the cover."""
         bSuccess = write_message(self._blindCharacteristics, self._device, IdStop, [0xcc], False)
         
         if (bSuccess):
-            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing STOP" " to "  +self._name +" : "+ self._mac  + " was succesfull!")
+            _LOGGER.debug("Writing STOP to "  +self._name +" : "+ self._mac  + " was succesfull!")
         else:
-            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to STOP" +self._name +" : "+ self._mac  + " FAILED")
-   
+            _LOGGER.error("Writing STOP to " +self._name +" : "+ self._mac  + " FAILED")
+
+    def set_cover_position(self, **kwargs):
+    	bSuccess = write_message(self._blindCharacteristics, dev, IdMove, [int(kwargs['position'])], False)
+    	if (bSuccess):
+    		_LOGGER.debug("Writing Set position to " +self._name +" : "+ self._mac +" - "+kwargs['position'] + " was succesfull!")
+    	else:
+    		_LOGGER.error("Writing Set position to " +self._name +" : "+ self._mac +" - "+kwargs['position'] + " FAILED")
+    		"""Move the cover to a specific position."""
+        
+        
     @property
     def device_class(self):
         """Return the class of this device, from component DEVICE_CLASSES."""
