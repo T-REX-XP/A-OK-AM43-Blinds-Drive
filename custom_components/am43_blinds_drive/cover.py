@@ -2,36 +2,22 @@
  Copyright 2020 T-REX-XP
 """
 from bluepy import btle
-import configparser
+#import configparser
 import os
-from flask import Flask
+#from flask import Flask
 import datetime
 from retrying import retry
 import json
+import logging
+import voluptuous as vol
 
-# AM43 Notification Identifiers
-# Msg format: 9a <id> <len> <data * len> <xor csum>
-IdMove = 0x0d  #not used in code yet
-IdStop = 0x0a
-IdBattery = 0xa2
-IdLight = 0xaa
-IdPosition = 0xa7
-IdPosition2 = 0xa8  #not used in code yet
-IdPosition3 = 0xa9  #not used in code yet
 
-BatteryPct = None
-LightPct = None
-PositionPct = None
 
-from homeassistant.components.cover import (
-    CoverDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_OPEN, SUPPORT_CLOSE, SUPPORT_STOP)
-from homeassistant.const import (
-    CONF_IP_ADDRESS, CONF_MAC, CONF_COVERS, CONF_DEVICE, CONF_COMMAND_OPEN, CONF_COMMAND_CLOSE, CONF_COMMAND_STOP, CONF_TRIGGER_TIME, CONF_TIMEOUT, CONF_FRIENDLY_NAME, STATE_CLOSED, STATE_OPEN, STATE_UNKNOWN)
+from homeassistant.components.cover import (CoverDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_OPEN, SUPPORT_CLOSE, SUPPORT_STOP, SUPPORT_SET_POSITION)
+from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_DEVICE, CONF_FRIENDLY_NAME, CONF_COVERS, STATE_CLOSED, STATE_OPEN, STATE_UNKNOWN)
 import homeassistant.helpers.config_validation as cv
 
-"""
-REQUIREMENTS = ['broadlink==0.9.0']
-"""
+REQUIREMENTS = ['retrying==1.3.3']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,74 +28,152 @@ STATE_OFFLINE = 'offline'
 STATE_OPENING = 'opening'
 STATE_STOPPED = 'stopped'
 
+# AM43 Notification Identifiers
+# Msg format: 9a <id> <len> <data * len> <xor csum>
+IdMove = 0x0d  #not used in code yet
+IdStop = 0x0a
+IdBattery = 0xa2
+IdLight = 0xaa
+IdPosition = 0xa7
+IdPosition2 = 0xa8  #not used in code yet
+IdPosition3 = 0xa9  #not used in code yet
+BatteryPct = None
+LightPct = None
+PositionPct = None
+
 DEFAULT_TIMEOUT = 10
 DEFAULT_RETRY = 3
 
 COVER_SCHEMA = vol.Schema({
-    vol.Optional(CONF_COMMAND_OPEN, default=None): cv.string,
-    vol.Optional(CONF_COMMAND_CLOSE, default=None): cv.string,
-    vol.Optional(CONF_COMMAND_STOP, default=None): cv.string,
-    vol.Optional(CONF_TRIGGER_TIME, default=DEFAULT_TIMEOUT): cv.positive_int,
-    vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
+    vol.Required(CONF_MAC): cv.string,
     vol.Optional(CONF_FRIENDLY_NAME, default=DEFAULT_NAME): cv.string
+})
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
+    vol.Required(CONF_COVERS): vol.Schema({cv.slug: COVER_SCHEMA}),
 })
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    '''vol.Required(CONF_IP_ADDRESS): cv.string,'''
-    vol.Required(CONF_MAC): cv.string,
-    vol.Required(CONF_COVERS): vol.Schema({cv.slug: COVER_SCHEMA}),
-    vol.Optional(CONF_FRIENDLY_NAME, default=DEFAULT_NAME): cv.string
-})
+class AM43Delegate(btle.DefaultDelegate):
+    def __init__(self):
+        btle.DefaultDelegate.__init__(self)
+    def handleNotification(self, cHandle, data):
+        if (data[1] == IdBattery):
+            global BatteryPct
+            #print("Battery: " + str(data[7]) + "%")
+            BatteryPct = data[7]
+        elif (data[1] == IdPosition):
+            global PositionPct
+            #print("Position: " + str(data[5]) + "%")
+            PositionPct = data[5]
+        elif (data[1] == IdLight):
+            global LightPct
+            #print("Light: " + str(data[3]) + "%")
+            LightPct = data[3]
+        else:
+            _LOGGER.error("Unknown identifier notification recieved: " + str(data[1:2]))
+# Constructs message and write to blind controller
+def write_message(characteristic, dev, id, data, bWaitForNotifications):
+    ret = False
+
+    # Construct message
+    msg = bytearray({0x9a})
+    msg += bytearray({id})
+    msg += bytearray({len(data)})
+    msg += bytearray(data)
+
+    # Calculate checksum (xor)
+    csum = 0
+    for x in msg:
+        csum = csum ^ x
+    msg += bytearray({csum})
+    
+    #print("".join("{:02x} ".format(x) for x in msg))
+    
+    if (characteristic):
+        result = characteristic.write(msg)
+        if (result["rsp"][0] == "wr"):
+            ret = True
+            if (bWaitForNotifications):
+                if (dev.waitForNotifications(10)):
+                    #print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " -->  BTLE Notification recieved", flush=True)
+                    pass
+    return ret
+
+@retry(stop_max_attempt_number=2,wait_fixed=2000)
+def ScanForBTLEDevices():
+    scanner = btle.Scanner()
+    print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Scanning for bluetooth devices....", flush=True)
+    devices = scanner.scan()
+
+    bAllDevicesFound = True
+    for AM43BlindsDevice in config['AM43_BLE_Devices']:
+        AM43BlindsDeviceMacAddress = config.get('AM43_BLE_Devices', AM43BlindsDevice)  # Read BLE MAC from ini file
+        
+        bFound = False
+        for dev in devices:
+            if (AM43BlindsDeviceMacAddress == dev.addr):
+                print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Found " + AM43BlindsDeviceMacAddress, flush=True)
+                bFound = True
+                break
+            #else: 
+                #bFound = False
+        if bFound == False:
+            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " " + AM43BlindsDeviceMacAddress + " not found on BTLE network!", flush=True)
+            bAllDevicesFound = False
+        
+    if (bAllDevicesFound == True):
+        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Every AM43 Blinds Controller is found on BTLE network", flush=True)
+        return
+    else:
+        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Not all AM43 Blinds Controllers are found on BTLE network, restarting bluetooth stack and checking again....", flush=True)
+        os.system("service bluetooth restart")
+        raise ValueError(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Not all AM43 Blinds Controllers are found on BTLE network, restarting bluetooth stack and check again....")
+
+
+@retry(stop_max_attempt_number=3,wait_fixed=2000)
+def ConnectBTLEDevice(AM43BlindsDeviceMacAddress,name):        
+    try:
+        _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Connecting to " +name+": "+ AM43BlindsDeviceMacAddress + "...")
+        dev = btle.Peripheral(AM43BlindsDeviceMacAddress)
+        return dev
+    except:
+    	_LOGGER.error(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Cannot connect to " +name+": "+ AM43BlindsDeviceMacAddress + " trying again....")
+        #raise ValueError(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Cannot connect to " + AM43BlindsDeviceMacAddress + " trying again....")
+
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
     """Set up the AM43 covers."""
     covers = []
     devices = config.get(CONF_COVERS)
-    ip_addr = config.get(CONF_IP_ADDRESS)
-    mac_addr = config.get(CONF_MAC)
-
     for object_id, device_config in devices.items():
-        
-        mac_addr = binascii.unhexlify(
-            mac_addr.encode().replace(b':', b''))
-        broadlink_device = broadlink.rm((ip_addr, 80), mac_addr, None)
-        
-        args = {
-            CONF_COMMAND_OPEN: device_config.get(CONF_COMMAND_OPEN),
-            CONF_COMMAND_CLOSE: device_config.get(CONF_COMMAND_CLOSE),
-            CONF_COMMAND_STOP: device_config.get(CONF_COMMAND_STOP),
-            CONF_TRIGGER_TIME: device_config.get(CONF_TRIGGER_TIME),
-            CONF_FRIENDLY_NAME: device_config.get(CONF_FRIENDLY_NAME, object_id),
-            CONF_DEVICE: broadlink_device
-        }
-        
-        covers.append(BroadlinkRMCover(hass, args, object_id))
-
-    broadlink_device.timeout = config.get(CONF_TIMEOUT)
-    try:
-        broadlink_device.auth()
-    except socket.timeout:
-        _LOGGER.error("Failed to connect to device")
+    	dev_name = device_config.get(CONF_FRIENDLY_NAME, object_id)
+    	dev_mac = device_config.get(CONF_MAC, object_id)
+    	device = ConnectBTLEDevice(dev_mac,dev_name)
+    	args = {
+    		CONF_FRIENDLY_NAME: dev_name,
+    		CONF_MAC: dev_mac,
+    		CONF_DEVICE: device
+    	}
+    	covers.append(AM43BlindsCover(hass, args, object_id))
 
     add_devices(covers, True)
 
-class BroadlinkRMCover(CoverDevice):
-    """Representation of Broadlink cover."""
-
+class AM43BlindsCover(CoverDevice):
+    """Representation of AM43BlindsCover cover."""
+# Reset variables
+    bSuccess = False
     # pylint: disable=no-self-use
     def __init__(self, hass, args, object_id):
         """Initialize the cover."""
         self.hass = hass
         self.entity_id = ENTITY_ID_FORMAT.format(object_id)
         self._name = args[CONF_FRIENDLY_NAME]
-        self._device = args[CONF_DEVICE]
         self._available = True
         self._state = None
-        self._command_open = b64decode(args[CONF_COMMAND_OPEN]) if args[CONF_COMMAND_OPEN] else None
-        self._command_close = b64decode(args[CONF_COMMAND_CLOSE]) if args[CONF_COMMAND_CLOSE] else None
-        self._command_stop = b64decode(args[CONF_COMMAND_STOP]) if args[CONF_COMMAND_STOP] else None
-        self._trigger_time = args[CONF_TRIGGER_TIME]
-
+#        self._trigger_time = args[CONF_TRIGGER_TIME]
+        self._mac = args[CONF_MAC]
+        self._device = args[CONF_DEVICE]
+        self._blindsControlService = self._device.getServiceByUUID("fe50")
+        self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
     @property
     def name(self):
         """Return the name of the cover."""
@@ -130,51 +194,38 @@ class BroadlinkRMCover(CoverDevice):
     @property
     def close_cover(self):
         """Close the cover."""
-        self._sendpacket(self._command_close)
-        time.sleep(self._trigger_time)
-        self._sendpacket(self._command_stop)
-        self._state = STATE_CLOSED
+        bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [100], False)
+#        time.sleep(self._trigger_time)
+        if (bSuccess):
+            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing Close" " to " +self._name +" : "+ self._mac  + " was succesfull!")
+            self._state = STATE_CLOSED
+        else:
+            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to Close" +self._name +" : "+ self._mac  + " FAILED")
 
     def open_cover(self):
         """Open the cover."""
-        self._sendpacket(self._command_open)
-        self._state = STATE_OPEN
+        bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [0], False)
+        if (bSuccess):
+            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing Open" " to " +self._name +" : "+ self._mac  + " was succesfull!")
+            self._state = STATE_OPEN
+        else:
+            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to Open" +self._name +" : "+ self._mac  + " FAILED")
 
     def stop_cover(self):
         """Stop the cover."""
-        self._sendpacket(self._command_stop)
+        bSuccess = write_message(self._blindCharacteristics, self._device, IdStop, [0xcc], False)
         
-    def _sendpacket(self, packet, retry=2):
-        """Send packet to device."""
-        if packet is None:
-            _LOGGER.debug("Empty packet")
-            return True
-        try:
-            self._device.send_data(packet)
-        except (socket.timeout, ValueError) as error:
-            if retry < 1:
-                _LOGGER.error(error)
-                return False
-            if not self._auth():
-                return False
-            return self._sendpacket(packet, retry-1)
-        return True
-
-    def _auth(self, retry=2):
-        try:
-            auth = self._device.auth()
-        except socket.timeout:
-            auth = False
-        if not auth and retry > 0:
-            return self._auth(retry-1)
-        return auth
-        
+        if (bSuccess):
+            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing STOP" " to "  +self._name +" : "+ self._mac  + " was succesfull!")
+        else:
+            _LOGGER.debug(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to STOP" +self._name +" : "+ self._mac  + " FAILED")
+   
     @property
     def device_class(self):
         """Return the class of this device, from component DEVICE_CLASSES."""
-        return 'garage'
+        return 'blind'
 
     @property
     def supported_features(self):
         """Flag supported features."""
-        return SUPPORT_OPEN | SUPPORT_CLOSE | SUPPORT_STOP
+        return SUPPORT_OPEN | SUPPORT_CLOSE | SUPPORT_SET_POSITION | SUPPORT_STOP
