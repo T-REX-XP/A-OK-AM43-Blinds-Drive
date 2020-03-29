@@ -4,5 +4,5 @@
   "documentation": "",
   "dependencies": [],
   "codeowners": [],
-  "requirements": []
+  "requirements": ["retrying==1.3.3"]
 }
