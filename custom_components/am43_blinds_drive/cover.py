@@ -12,7 +12,7 @@ import voluptuous as vol
 from homeassistant.components.cover import (CoverDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_OPEN, SUPPORT_CLOSE,
                                             SUPPORT_STOP, SUPPORT_SET_POSITION)
 from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_DEVICE, CONF_FRIENDLY_NAME, CONF_COVERS, STATE_CLOSED,
-                                 STATE_OPEN, STATE_UNKNOWN, DEVICE_CLASS_COVER, ATTR_BATTERY_LEVEL)
+                                 STATE_OPEN, STATE_UNKNOWN, ATTR_BATTERY_LEVEL)
 import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
