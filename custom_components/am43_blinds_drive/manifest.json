@@ -4,5 +4,5 @@
   "documentation": "https://github.com/T-REX-XP/A-OK-AM43-Blinds-Drive",
   "dependencies": [],
   "codeowners": ["TheBazeman","T-REX-XP"],
-  "requirements": ["bluepy==1.3.0","retrying==1.3.3"]
+  "requirements": ["retrying==1.3.3"]
 }
