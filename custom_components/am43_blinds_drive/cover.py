@@ -15,7 +15,7 @@ from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_DEVICE, CONF_FRIENDLY
                                  STATE_OPEN, STATE_UNKNOWN)
 import homeassistant.helpers.config_validation as cv
 
-#REQUIREMENTS = ['retrying==1.3.3']
+REQUIREMENTS = ['retrying==1.3.3']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -186,17 +186,9 @@ class AM43BlindsCover(CoverDevice):
         self.battery_level = 100
         self._blindsControlService = self._device.getServiceByUUID("fe50")
         self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
-        # self.update()
+        self.update(self)
 
     def initBleServices(self):
-        device = ConnectBTLEDevice(self._mac, self._name)
-        if device:
-            blindsControlService = self._device.getServiceByUUID("fe50")
-            if blindsControlService:
-                blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
-
-    def update(self):
-        # self.initBleServices()
         if self._device is None:
             self._device = ConnectBTLEDevice(self._mac, self._name)
 
@@ -206,6 +198,9 @@ class AM43BlindsCover(CoverDevice):
         if self._blindCharacteristics is None:
             self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
 
+    def update(self):
+        _LOGGER.debug("in update..." + self._name)
+        self.initBleServices(self)
         bSuccess = self._device.setDelegate(AM43Delegate())
         bSuccess = write_message(self._blindCharacteristics, self._device, IdBattery, [0x01], True)
         bSuccess = write_message(self._blindCharacteristics, self._device, IdLight, [0x01], True)
@@ -244,46 +239,46 @@ class AM43BlindsCover(CoverDevice):
     @property
     def close_cover(self):
         """Close the cover."""
-        self.initBleServices()
+        self.initBleServices(self)
         bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [100], False)
         if (bSuccess):
             _LOGGER.debug("Writing Close" " to " + self._name + " : " + self._mac + " was succesfull!")
             self._state = STATE_CLOSED
-            self.update()
+            self.update(self)
         else:
             _LOGGER.error("Writing to Close" + self._name + " : " + self._mac + " FAILED")
 
     def open_cover(self):
         """Open the cover."""
-        self.initBleServices()
+        self.initBleServices(self)
         bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [0], False)
 
         if (bSuccess):
             _LOGGER.debug("Writing Open" " to " + self._name + " : " + self._mac + " was succesfull!")
             self._state = STATE_OPEN
-            self.update()
+            self.update(self)
         else:
             _LOGGER.error("Writing to Open" + self._name + " : " + self._mac + " FAILED")
 
     def stop_cover(self):
         """Stop the cover."""
-        self.initBleServices()
+        self.initBleServices(self)
         bSuccess = write_message(self._blindCharacteristics, self._device, IdStop, [0xcc], False)
 
         if (bSuccess):
             _LOGGER.debug("Writing STOP to " + self._name + " : " + self._mac + " was succesfull!")
-            self.update()
+            self.update(self)
         else:
             _LOGGER.error("Writing STOP to " + self._name + " : " + self._mac + " FAILED")
 
     def set_cover_position(self, **kwargs):
         """Move the cover to a specific position."""
-        self.initBleServices()
+        self.initBleServices(self)
         bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [int(kwargs['position'])], False)
         if (bSuccess):
             _LOGGER.debug("Writing Set position to " + self._name + " : " + self._mac + " - " + kwargs[
                 'position'] + " was succesfull!")
-            self.update()
+            self.update(self)
         else:
             _LOGGER.error(
                 "Writing Set position to " + self._name + " : " + self._mac + " - " + kwargs['position'] + " FAILED")
