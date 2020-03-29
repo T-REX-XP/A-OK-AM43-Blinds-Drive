@@ -100,44 +100,6 @@ def write_message(characteristic, dev, id, data, bWaitForNotifications):
                     pass
     return ret
 
-
-@retry(stop_max_attempt_number=2, wait_fixed=2000)
-def ScanForBTLEDevices():
-    scanner = btle.Scanner()
-    print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Scanning for bluetooth devices....", flush=True)
-    devices = scanner.scan()
-
-    bAllDevicesFound = True
-    for AM43BlindsDevice in config['AM43_BLE_Devices']:
-        AM43BlindsDeviceMacAddress = config.get('AM43_BLE_Devices', AM43BlindsDevice)  # Read BLE MAC from ini file
-
-        bFound = False
-        for dev in devices:
-            if AM43BlindsDeviceMacAddress == dev.addr:
-                print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Found " + AM43BlindsDeviceMacAddress,
-                      flush=True)
-                bFound = True
-                break
-            # else:
-            # bFound = False
-        if bFound == False:
-            print(datetime.datetime.now().strftime(
-                "%d-%m-%Y %H:%M:%S") + " " + AM43BlindsDeviceMacAddress + " not found on BTLE network!", flush=True)
-            bAllDevicesFound = False
-
-    if (bAllDevicesFound == True):
-        print(datetime.datetime.now().strftime(
-            "%d-%m-%Y %H:%M:%S") + " Every AM43 Blinds Controller is found on BTLE network", flush=True)
-        return
-    else:
-        print(datetime.datetime.now().strftime(
-            "%d-%m-%Y %H:%M:%S") + " Not all AM43 Blinds Controllers are found on BTLE network, restarting bluetooth stack and checking again....",
-              flush=True)
-        os.system("service bluetooth restart")
-        raise ValueError(datetime.datetime.now().strftime(
-            "%d-%m-%Y %H:%M:%S") + " Not all AM43 Blinds Controllers are found on BTLE network, restarting bluetooth stack and check again....")
-
-
 @retry(stop_max_attempt_number=3, wait_fixed=2000)
 def ConnectBTLEDevice(AM43BlindsDeviceMacAddress, name):
     try:
@@ -181,26 +143,30 @@ class AM43BlindsCover(CoverDevice):
         self._name = args[CONF_FRIENDLY_NAME]
         self._available = True
         self._state = None
-        self._mac = args[CONF_MAC]
-        self._device = args[CONF_DEVICE]
         self.battery_level = 100
+        self._mac = args[CONF_MAC]
+
+        self._device = args[CONF_DEVICE]
         self._blindsControlService = self._device.getServiceByUUID("fe50")
         self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
-        self.update(self)
+        self.update()
 
     def initBleServices(self):
         if self._device is None:
+            _LOGGER.debug("In initBleServices.device is none. initializing device")
             self._device = ConnectBTLEDevice(self._mac, self._name)
 
         if self._blindsControlService is None:
+            _LOGGER.debug("In initBleServices._blindsControlService is none. initializing _blindsControlService")
             self._blindsControlService = self._device.getServiceByUUID("fe50")
 
         if self._blindCharacteristics is None:
+            _LOGGER.debug("In initBleServices._blindCharacteristics is none. initializing _blindCharacteristics")
             self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
 
     def update(self):
         _LOGGER.debug("in update..." + self._name)
-        self.initBleServices(self)
+        self.initBleServices()
         bSuccess = self._device.setDelegate(AM43Delegate())
         bSuccess = write_message(self._blindCharacteristics, self._device, IdBattery, [0x01], True)
         bSuccess = write_message(self._blindCharacteristics, self._device, IdLight, [0x01], True)
@@ -239,49 +205,48 @@ class AM43BlindsCover(CoverDevice):
     @property
     def close_cover(self):
         """Close the cover."""
-        self.initBleServices(self)
+        self.initBleServices()
         bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [100], False)
         if (bSuccess):
             _LOGGER.debug("Writing Close" " to " + self._name + " : " + self._mac + " was succesfull!")
             self._state = STATE_CLOSED
-            self.update(self)
+            self.update()
         else:
             _LOGGER.error("Writing to Close" + self._name + " : " + self._mac + " FAILED")
 
     def open_cover(self):
         """Open the cover."""
-        self.initBleServices(self)
+        self.initBleServices()
         bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [0], False)
 
         if (bSuccess):
             _LOGGER.debug("Writing Open" " to " + self._name + " : " + self._mac + " was succesfull!")
             self._state = STATE_OPEN
-            self.update(self)
+            self.update()
         else:
             _LOGGER.error("Writing to Open" + self._name + " : " + self._mac + " FAILED")
 
     def stop_cover(self):
         """Stop the cover."""
-        self.initBleServices(self)
+        self.initBleServices()
         bSuccess = write_message(self._blindCharacteristics, self._device, IdStop, [0xcc], False)
 
         if (bSuccess):
             _LOGGER.debug("Writing STOP to " + self._name + " : " + self._mac + " was succesfull!")
-            self.update(self)
+            self.update()
         else:
             _LOGGER.error("Writing STOP to " + self._name + " : " + self._mac + " FAILED")
 
     def set_cover_position(self, **kwargs):
         """Move the cover to a specific position."""
-        self.initBleServices(self)
+        self.initBleServices()
         bSuccess = write_message(self._blindCharacteristics, self._device, IdMove, [int(kwargs['position'])], False)
         if (bSuccess):
-            _LOGGER.debug("Writing Set position to " + self._name + " : " + self._mac + " - " + kwargs[
-                'position'] + " was succesfull!")
-            self.update(self)
+            _LOGGER.debug("Writing Set position to " + self._name + " : " + self._mac + " - " + str(kwargs['position']) + " was succesfull!")
+            self.update()
         else:
             _LOGGER.error(
-                "Writing Set position to " + self._name + " : " + self._mac + " - " + kwargs['position'] + " FAILED")
+                "Writing Set position to " + self._name + " : " + self._mac + " - " + str(kwargs['position']) + " FAILED")
 
     @property
     def device_class(self):
