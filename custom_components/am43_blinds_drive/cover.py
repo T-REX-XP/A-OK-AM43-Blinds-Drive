@@ -146,9 +146,7 @@ def ConnectBTLEDevice(AM43BlindsDeviceMacAddress, name):
         dev = btle.Peripheral(AM43BlindsDeviceMacAddress)
         return dev
     except:
-        _LOGGER.error(datetime.datetime.now().strftime(
-            "%d-%m-%Y %H:%M:%S") + " Cannot connect to " + name + ": " + AM43BlindsDeviceMacAddress + " trying again....")
-        # raise ValueError(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Cannot connect to " + AM43BlindsDeviceMacAddress + " trying again....")
+        raise ValueError(" Cannot connect to " + AM43BlindsDeviceMacAddress + " trying again....")
 
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
@@ -158,13 +156,15 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     for object_id, device_config in devices.items():
         dev_name = device_config.get(CONF_FRIENDLY_NAME, object_id)
         dev_mac = device_config.get(CONF_MAC, object_id)
-
-        args = {
-            CONF_FRIENDLY_NAME: dev_name,
-            CONF_MAC: dev_mac,
-        }
-        covers.append(AM43BlindsCover(hass, args, object_id))
-
+        try:
+            args = {
+                CONF_FRIENDLY_NAME: dev_name,
+                CONF_MAC: dev_mac,
+                CONF_DEVICE: ConnectBTLEDevice(dev_mac, dev_name)
+            }
+            covers.append(AM43BlindsCover(hass, args, object_id))
+        except:
+            continue
     add_devices(covers, True)
 
 
@@ -182,19 +182,30 @@ class AM43BlindsCover(CoverDevice):
         self._available = True
         self._state = None
         self._mac = args[CONF_MAC]
-
-        self._device = ConnectBTLEDevice(self._mac, self._name)
+        self._device = args[CONF_DEVICE]
+        self.battery_level = 100
         self._blindsControlService = self._device.getServiceByUUID("fe50")
         self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
-        self.update()
+        # self.update()
 
     def initBleServices(self):
-        self._device = ConnectBTLEDevice(self._mac, self._name)
-        self._blindsControlService = self._device.getServiceByUUID("fe50")
-        self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
+        device = ConnectBTLEDevice(self._mac, self._name)
+        if device:
+            blindsControlService = self._device.getServiceByUUID("fe50")
+            if blindsControlService:
+                blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
 
     def update(self):
-        self.initBleServices()
+        # self.initBleServices()
+        if self._device is None:
+            self._device = ConnectBTLEDevice(self._mac, self._name)
+
+        if self._blindsControlService is None:
+            self._blindsControlService = self._device.getServiceByUUID("fe50")
+
+        if self._blindCharacteristics is None:
+            self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
+
         bSuccess = self._device.setDelegate(AM43Delegate())
         bSuccess = write_message(self._blindCharacteristics, self._device, IdBattery, [0x01], True)
         bSuccess = write_message(self._blindCharacteristics, self._device, IdLight, [0x01], True)
