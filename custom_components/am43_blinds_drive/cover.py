@@ -12,10 +12,8 @@ import voluptuous as vol
 from homeassistant.components.cover import (CoverDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_OPEN, SUPPORT_CLOSE,
                                             SUPPORT_STOP, SUPPORT_SET_POSITION)
 from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_DEVICE, CONF_FRIENDLY_NAME, CONF_COVERS, STATE_CLOSED,
-                                 STATE_OPEN, STATE_UNKNOWN)
+                                 STATE_OPEN, STATE_UNKNOWN, DEVICE_CLASS_COVER, ATTR_BATTERY_LEVEL)
 import homeassistant.helpers.config_validation as cv
-
-REQUIREMENTS = ['retrying==1.3.3']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -145,6 +143,7 @@ class AM43BlindsCover(CoverDevice):
         self._state = None
         self.battery_level = 100
         self._mac = args[CONF_MAC]
+        self._device_state_attributes = {}
 
         self._device = args[CONF_DEVICE]
         self._blindsControlService = self._device.getServiceByUUID("fe50")
@@ -152,17 +151,17 @@ class AM43BlindsCover(CoverDevice):
         self.update()
 
     def initBleServices(self):
-        if self._device is None:
-            _LOGGER.debug("In initBleServices.device is none. initializing device")
-            self._device = ConnectBTLEDevice(self._mac, self._name)
+        #if self._device is None:
+            #_LOGGER.debug("In initBleServices.device is none. initializing device")
+        self._device = ConnectBTLEDevice(self._mac, self._name)
 
-        if self._blindsControlService is None:
-            _LOGGER.debug("In initBleServices._blindsControlService is none. initializing _blindsControlService")
-            self._blindsControlService = self._device.getServiceByUUID("fe50")
+        #if self._blindsControlService is None:
+            #_LOGGER.debug("In initBleServices._blindsControlService is none. initializing _blindsControlService")
+        self._blindsControlService = self._device.getServiceByUUID("fe50")
 
-        if self._blindCharacteristics is None:
-            _LOGGER.debug("In initBleServices._blindCharacteristics is none. initializing _blindCharacteristics")
-            self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
+        #if self._blindCharacteristics is None:
+            #_LOGGER.debug("In initBleServices._blindCharacteristics is none. initializing _blindCharacteristics")
+        self._blindCharacteristics = self._blindsControlService.getCharacteristics("fe51")[0]
 
     def update(self):
         _LOGGER.debug("in update..." + self._name)
@@ -177,7 +176,9 @@ class AM43BlindsCover(CoverDevice):
         global PositionPct
         _LOGGER.debug("Battery level: " + str(BatteryPct) + "%, " + "Blinds position: " + str(
             PositionPct) + "%, " + "Light sensor level: " + str(LightPct) + "%")
-        self.battery_level = BatteryPct
+        self._device_state_attributes[ATTR_BATTERY_LEVEL] = BatteryPct
+        #self.battery_level = BatteryPct
+        self._device.discnnect()
         # ResultDict.update({AM43BlindsDevice.capitalize(): [{"battery": BatteryPct,"position": PositionPct,"light": LightPct,"macaddr": AM43BlindsDeviceMacAddress}]})
 
     @property
@@ -252,6 +253,11 @@ class AM43BlindsCover(CoverDevice):
     def device_class(self):
         """Return the class of this device, from component DEVICE_CLASSES."""
         return 'blind'
+
+    @property
+    def device_state_attributes(self):
+        """Return the state attributes."""
+        return self._device_state_attributes
 
     @property
     def supported_features(self):
