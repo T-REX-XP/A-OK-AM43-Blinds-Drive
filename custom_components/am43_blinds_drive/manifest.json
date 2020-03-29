@@ -1,8 +1,8 @@
 {
   "domain": "am43blinds",
-  "name": "AM43Blinds",
-  "documentation": "",
+  "name": "AM43 Blinds drive",
+  "documentation": "https://github.com/T-REX-XP/A-OK-AM43-Blinds-Drive",
   "dependencies": [],
-  "codeowners": [],
+  "codeowners": ["TheBazeman","T-REX-XP"],
   "requirements": ["retrying==1.3.3"]
 }
