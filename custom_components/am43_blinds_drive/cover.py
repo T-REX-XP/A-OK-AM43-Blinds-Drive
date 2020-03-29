@@ -15,7 +15,7 @@ from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_DEVICE, CONF_FRIENDLY
                                  STATE_OPEN, STATE_UNKNOWN)
 import homeassistant.helpers.config_validation as cv
 
-REQUIREMENTS = ['retrying==1.3.3']
+#REQUIREMENTS = ['retrying==1.3.3']
 
 _LOGGER = logging.getLogger(__name__)
 
